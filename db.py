@@ -1,24 +1,44 @@
-from sqlalchemy import create_engine, Column, String, DateTime, JSON
-from sqlalchemy.orm import declarative_base, sessionmaker
-from datetime import datetime
+import requests
+from datetime import datetime, timezone
+import json
 
-engine = create_engine("sqlite:///tickets.db", future=True)
-SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
-Base = declarative_base()
+# 🔹 Configuración de conexión directa a IBM Cloudant
+CLOUDANT_URL = "https://apikey:OY48qTK4COFQ1E1AkI3GZ158Kl3sVWdEydDZMZHgg45Q@b73163c9-f046-49a0-85d2-ddda7220e0bb-bluemix.cloudantnosqldb.appdomain.cloud"
+DB_NAME = "ticketspedidos"  # nombre de la base que creaste en Cloudant
 
-class TicketORM(Base):
-    __tablename__ = "tickets"
-    id = Column(String, primary_key=True)
-    type = Column(String, nullable=False)
-    full_name = Column(String, nullable=False)
-    phone = Column(String, nullable=False)
-    sev = Column(String, nullable=False)
-    classstructureid = Column(String, nullable=False)
-    classificationid = Column(String, nullable=False)
-    summary = Column(String, nullable=False)
-    group = Column(String, nullable=False)
-    description = Column(String)
-    payload = Column(JSON, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+# 🔹 Función para crear (guardar) un ticket
+def save_ticket(ticket_data: dict):
+    url = f"{CLOUDANT_URL}/{DB_NAME}"
+    headers = {"Content-Type": "application/json"}
 
-Base.metadata.create_all(engine)
+    # Agregar timestamp al documento
+    ticket_data["_id"] = ticket_data.get("id")
+    ticket_data["created_at"] = datetime.now(timezone.utc).isoformat()
+
+    response = requests.post(f"{url}", headers=headers, data=json.dumps(ticket_data))
+
+    if response.status_code not in (200, 201):
+        print("⚠️ Error al guardar en Cloudant:", response.text)
+        raise Exception("No se pudo guardar el ticket en Cloudant")
+
+    return response.json()
+
+# 🔹 Función para obtener todos los tickets
+def get_all_tickets():
+    url = f"{CLOUDANT_URL}/{DB_NAME}/_all_docs?include_docs=true"
+    response = requests.get(url)
+
+    if response.status_code != 200:
+        raise Exception(f"Error al obtener tickets: {response.text}")
+
+    data = response.json()
+    docs = [row["doc"] for row in data.get("rows", [])]
+    return docs
+
+# 🔹 Función para obtener un ticket específico por su INC
+def get_ticket_by_inc(inc_number: str):
+    all_tickets = get_all_tickets()
+    for t in all_tickets:
+        if t.get("inc_number") == inc_number:
+            return t
+    return None
