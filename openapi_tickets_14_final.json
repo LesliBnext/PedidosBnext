@@ -1,0 +1,149 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "API Tickets Pedidos 2025",
+    "version": "1.0.0",
+    "description": "Endpoint para crear tickets de gestión de pedidos. Retorna número INC y texto de confirmación según el tipo de ticket."
+  },
+  "servers": [
+  { "url": "https://pedidos-bnext-api.1zllrd15bn7m.us-south.codeengine.appdomain.cloud" }
+  ],
+  "paths": {
+    "/tickets": {
+      "post": {
+        "summary": "Crear Ticket",
+        "operationId": "crearTicket",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ticket creado correctamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Solicitud inválida"
+          },
+          "500": {
+            "description": "Error interno"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "TicketIn": {
+        "type": "object",
+        "required": [
+          "type",
+          "full_name",
+          "phone"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "tienda_no_programada",
+              "alta_pedido_tienda",
+              "sync_pedido",
+              "conciliacion_pedido",
+              "producto_pendiente",
+              "salida_envase_incorrecta",
+              "no_orden_entrada",
+              "dudas_mov_envase",
+              "dudas_recepcion_oe",
+              "dudas_envase_a_entregar",
+              "dudas_ventas_relacionadas",
+              "dudas_monto_pagar",
+              "ventas_incluidas_en_pedido",
+              "productos_a_recibir_en_pedido"
+            ]
+          },
+          "full_name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "mrq_pe": {
+            "type": "string"
+          },
+          "a_envase": {
+            "type": "integer"
+          },
+          "b_envase": {
+            "type": "integer"
+          },
+          "c_envase": {
+            "type": "integer"
+          }
+        }
+      },
+      "TicketOut": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "inc_number": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "full_name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "sev": {
+            "type": "string"
+          },
+          "classstructureid": {
+            "type": "string"
+          },
+          "classificationid": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "confirmation_text": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
