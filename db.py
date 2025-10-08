@@ -31,7 +31,11 @@ class SessionLocal:
             response = requests.post(url, auth=(CLOUDANT_USER, CLOUDANT_APIKEY), json=data)
             print(f"📤 POST {url} → {response.status_code}")
             if response.status_code not in (200, 201, 202):
-                raise Exception(f"Error al guardar: {response.text}")
+                print("⚠️ Error Cloudant:")
+                print("📤 URL:", url)
+                print("📦 Enviado:", data)
+                print("📥 Respuesta:", response.status_code, "-", response.text)
+                raise Exception(f"Error Cloudant: {response.status_code} - {response.text}")
         self.buffer.clear()
 
     def query(self, model):

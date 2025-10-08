@@ -18,70 +18,81 @@ def build_inc(ticket_id: str) -> str:
     return "INC" + ticket_id[:8]
 
 # ---------------------- CREAR TICKET ----------------------
-@app.post("/tickets", response_model=TicketOut)
+@app.post("/tickets")
 def create_ticket(body: TicketIn):
-    # Normalizar el tipo antes de buscarlo
-    normalized_type = body.type.strip().lower().replace(" ", "_")
-    meta = CATALOG.get(normalized_type)
-    if not meta:
-        raise HTTPException(400, "type inválido")
-
-    payload = body.model_dump()
-    _validate_required(payload, meta["required"])
-
-    # Generar descripción automática si no se envía
-    auto_description = body.description or meta.get("summary", "")
-    payload["description"] = auto_description
-
-    ticket_id = new_id()
-    inc_number = "INC" + ticket_id[:8]
-    created_at = datetime.now(timezone.utc).isoformat()
-
-    # Construir mensaje de confirmación con plantilla específica
-    template = meta.get("template") or CONFIRMATION_FALLBACK
-    confirmation_text = template.format(
-        INC=inc_number,
-        GROUP=meta["group"]
-    )
-
-    # Guardar en Cloudant
-    db = SessionLocal()
     try:
-        row = TicketORM(
-            id=ticket_id,
-            type=body.type,
-            full_name=body.full_name,
-            phone=body.phone,
-            sev=meta["sev"],
-            classstructureid=meta["classstructureid"],
-            classificationid=meta["classificationid"],
-            summary=meta["summary"],
-            group=meta["group"],
-            description=auto_description,
-            payload=payload,
-            created_at=created_at
-        )
-        db.add(row)
-        db.commit()
-    finally:
-        db.close()
+        # ---------------------- NORMALIZAR Y VALIDAR ----------------------
+        normalized_type = body.type.strip().lower().replace(" ", "_")
+        meta = CATALOG.get(normalized_type)
+        if not meta:
+            raise HTTPException(400, "type inválido")
 
-    return {
-        "id": ticket_id,
-        "inc_number": inc_number,
-        "type": body.type,
-        "full_name": body.full_name,
-        "phone": body.phone,
-        "sev": meta["sev"],
-        "classstructureid": meta["classstructureid"],
-        "classificationid": meta["classificationid"],
-        "summary": meta["summary"],
-        "group": meta["group"],
-        "description": auto_description,
-        "payload": payload,
-        "created_at": created_at,
-        "confirmation_text": confirmation_text,
-    }
+        payload = body.model_dump()
+        _validate_required(payload, meta["required"])
+
+        # ---------------------- DESCRIPCIÓN AUTOMÁTICA ----------------------
+        auto_description = body.description or meta.get("summary", "")
+        payload["description"] = auto_description
+
+        # ---------------------- DATOS BASE ----------------------
+        ticket_id = new_id()
+        inc_number = "INC" + ticket_id[:8]
+        created_at = datetime.now(timezone.utc).isoformat()
+
+        # ---------------------- MENSAJE DE CONFIRMACIÓN ----------------------
+        template = meta.get("template") or CONFIRMATION_FALLBACK
+        confirmation_text = template.format(
+            INC=inc_number,
+            GROUP=meta["group"]
+        )
+
+        # ---------------------- GUARDAR EN BASE ----------------------
+        db = SessionLocal()
+        try:
+            row = TicketORM(
+                id=ticket_id,
+                type=body.type,
+                full_name=body.full_name,
+                phone=body.phone,
+                sev=meta["sev"],
+                classstructureid=meta["classstructureid"],
+                classificationid=meta["classificationid"],
+                summary=meta["summary"],
+                group=meta["group"],
+                description=auto_description,
+                payload=payload,
+                created_at=created_at
+            )
+            db.add(row)
+            db.commit()
+        finally:
+            db.close()
+
+        # ---------------------- RESPUESTA EXITOSA ----------------------
+        return {
+            "id": ticket_id,
+            "inc_number": inc_number,
+            "type": body.type,
+            "full_name": body.full_name,
+            "phone": body.phone,
+            "sev": meta["sev"],
+            "classstructureid": meta["classstructureid"],
+            "classificationid": meta["classificationid"],
+            "summary": meta["summary"],
+            "group": meta["group"],
+            "description": auto_description,
+            "payload": payload,
+            "created_at": created_at,
+            "confirmation_text": confirmation_text
+        }
+
+    # ---------------------- CAPTURAR ERRORES ----------------------
+    except Exception as e:
+        return {
+            "error": "Error al crear ticket",
+            "detalle": str(e)
+        }
+
 
 # ---------------------- LISTAR TODOS LOS TICKETS ----------------------
 @app.get("/tickets")
