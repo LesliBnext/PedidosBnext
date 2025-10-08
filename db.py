@@ -1,72 +1,45 @@
+import os
 import requests
-import json
-from datetime import datetime, timezone
+from dotenv import load_dotenv
 
-# ====================================================
-# CONFIGURACIÓN CLOUDANT
-# ====================================================
+load_dotenv()
 
-# 🔑 Tus credenciales (reemplaza si cambian en el futuro)
-CLOUDANT_USER = "b73163c9-f046-49a0-85d2-ddda7220e0bb-bluemix"
-CLOUDANT_APIKEY = "OY48qTK4COFQ1E1AkI3GZ158Kl3sVWdEydDZMZHgg45Q"
+# --- Configuración de Cloudant ---
+CLOUDANT_URL = os.getenv("CLOUDANT_URL", "https://b73163c9-f046-49a0-85d2-ddda7220e0bb-bluemix.cloudantnosqldb.appdomain.cloud")
+CLOUDANT_DB = os.getenv("CLOUDANT_DB", "ticketspedidos")
+CLOUDANT_USER = os.getenv("CLOUDANT_USER", "b73163c9-f046-49a0-85d2-ddda7220e0bb-bluemix")
+CLOUDANT_APIKEY = os.getenv("CLOUDANT_APIKEY", "OY48qTK4COFQ1E1AkI3GZ158Kl3sVWdEydDZMZHgg45Q")
 
-# 🌐 URL base de Cloudant con autenticación
-CLOUDANT_HOST = f"https://{CLOUDANT_USER}:{CLOUDANT_APIKEY}@{CLOUDANT_USER}.cloudantnosqldb.appdomain.cloud"
+def save_ticket(ticket):
+    """Guarda un ticket en la base de datos Cloudant."""
+    url = f"{CLOUDANT_URL}/{CLOUDANT_DB}"
+    response = requests.post(url, auth=(CLOUDANT_USER, CLOUDANT_APIKEY), json=ticket)
 
-# 📁 Nombre de la base de datos (debe existir en tu panel de Cloudant)
-DB_NAME = "ticketspedidos"
-
-# ====================================================
-# FUNCIONES PRINCIPALES
-# ====================================================
-
-def save_ticket(ticket_data: dict):
-    """
-    Guarda un nuevo ticket en Cloudant.
-    """
-    url = f"{CLOUDANT_HOST}/{DB_NAME}"
-    headers = {"Content-Type": "application/json"}
-
-    # Asegurar campos básicos
-    ticket_data["_id"] = ticket_data.get("id")
-    ticket_data["created_at"] = datetime.now(timezone.utc).isoformat()
-
-    # Enviar a Cloudant
-    response = requests.post(url, headers=headers, data=json.dumps(ticket_data))
-
-    # Log para depuración
+    # Log en consola y también visible desde FastAPI
     print(f"📤 POST {url}")
-    print(f"📦 Payload: {json.dumps(ticket_data, indent=2)}")
-    print(f"📥 Cloudant respondió ({response.status_code}): {response.text}")
+    print(f"📦 Payload: {ticket}")
+    print(f"📥 Respuesta Cloudant: {response.status_code} - {response.text}")
 
-    if response.status_code not in (200, 201):
-        raise Exception(f"Error Cloudant: {response.status_code} - {response.text}")
-
-    return response.json()
-
+    if response.status_code not in (200, 201, 202):
+        raise Exception(f"⚠️ Error Cloudant: {response.status_code} - {response.text}")
 
 def get_all_tickets():
-    """
-    Devuelve todos los tickets guardados en Cloudant.
-    """
-    url = f"{CLOUDANT_HOST}/{DB_NAME}/_all_docs?include_docs=true"
-    response = requests.get(url)
-
+    """Obtiene todos los documentos de Cloudant."""
+    url = f"{CLOUDANT_URL}/{CLOUDANT_DB}/_all_docs?include_docs=true"
+    response = requests.get(url, auth=(CLOUDANT_USER, CLOUDANT_APIKEY))
     print(f"📥 GET {url} → {response.status_code}")
-
     if response.status_code != 200:
-        raise Exception(f"Error Cloudant: {response.status_code} - {response.text}")
-
+        raise Exception(f"⚠️ Error al obtener tickets: {response.text}")
     data = response.json()
     return [row["doc"] for row in data.get("rows", [])]
 
-
 def get_ticket_by_inc(inc_number: str):
-    """
-    Busca un ticket por su número INC (INCxxxxx).
-    """
-    tickets = get_all_tickets()
-    for t in tickets:
-        if t.get("inc_number") == inc_number:
-            return t
-    return None
+    """Busca un ticket por número de incidencia."""
+    url = f"{CLOUDANT_URL}/{CLOUDANT_DB}/_find"
+    selector = {"selector": {"inc_number": {"$eq": inc_number}}}
+    response = requests.post(url, auth=(CLOUDANT_USER, CLOUDANT_APIKEY), json=selector)
+    print(f"🔍 Buscando {inc_number} → {response.status_code}")
+    if response.status_code != 200:
+        raise Exception(f"⚠️ Error al buscar ticket: {response.text}")
+    docs = response.json().get("docs", [])
+    return docs[0] if docs else None
