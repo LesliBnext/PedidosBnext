@@ -1,87 +1,70 @@
-from fastapi import FastAPI, HTTPException
-from datetime import datetime, timezone
-from models import TicketIn
-from catalog import CATALOG, CONFIRMATION_FALLBACK
-from id_utils import new_id
-from db import save_ticket, get_all_tickets, get_ticket_by_inc
+import os
+import requests
+from dotenv import load_dotenv
 
-app = FastAPI(title="API Tickets (Cloudant) - Pedidos Bnext", version="2.1.0")
+load_dotenv()
 
-# ---------------------- FUNCIONES AUXILIARES ----------------------
-def _validate_required(data: dict, required: list[str]):
-    """
-    Valida que todos los campos requeridos estén presentes en el payload.
-    """
-    missing = [r for r in required if data.get(r) in (None, "")]
-    if missing:
-        raise HTTPException(400, f"Faltan campos requeridos: {', '.join(missing)}")
+# === CONFIGURACIÓN DE CLOUDANT ===
+CLOUDANT_URL = os.getenv("CLOUDANT_URL", "https://b73163c9-f046-49a0-85d2-ddda7220e0bb-bluemix.cloudantnosqldb.appdomain.cloud")
+CLOUDANT_DB = os.getenv("CLOUDANT_DB", "ticketspedidos")
+CLOUDANT_USER = os.getenv("CLOUDANT_USER", "b73163c9-f046-49a0-85d2-ddda7220e0bb-bluemix")
+CLOUDANT_APIKEY = os.getenv("CLOUDANT_APIKEY", "OY48qTK4COFQ1E1AkI3GZ158Kl3sVWdEydDZMZHgg45Q")
 
-def build_inc(ticket_id: str) -> str:
-    return "INC" + ticket_id[:8]
+# === ORM SIMPLIFICADO COMPATIBLE CON APP EXISTENTE ===
+class TicketORM:
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
-# ---------------------- CREAR TICKET ----------------------
-@app.post("/tickets")
-def create_ticket(body: TicketIn):
-    # Normalizar tipo
-    normalized_type = body.type.strip().lower().replace(" ", "_")
-    meta = CATALOG.get(normalized_type)
-    if not meta:
-        raise HTTPException(400, "Tipo de ticket inválido")
+class SessionLocal:
+    """Simula una sesión como SQLAlchemy pero guarda en Cloudant."""
+    def __init__(self):
+        self.buffer = []
 
-    payload = body.model_dump()
-    _validate_required(payload, meta["required"])
+    def add(self, row):
+        self.buffer.append(row)
 
-    # Generar descripción automática si no se envía
-    auto_description = body.description or meta.get("summary", "")
-    payload["description"] = auto_description
+    def commit(self):
+        for row in self.buffer:
+            url = f"{CLOUDANT_URL}/{CLOUDANT_DB}"
+            data = row.__dict__
+            response = requests.post(url, auth=(CLOUDANT_USER, CLOUDANT_APIKEY), json=data)
+            print(f"📤 POST {url} → {response.status_code}")
+            if response.status_code not in (200, 201, 202):
+                raise Exception(f"Error al guardar: {response.text}")
+        self.buffer.clear()
 
-    # Crear identificadores
-    ticket_id = new_id()
-    inc_number = build_inc(ticket_id)
-    created_at = datetime.now(timezone.utc).isoformat()
+    def query(self, model):
+        # Devuelve un objeto que imita la API de SQLAlchemy
+        return CloudantQuery(model)
 
-    # Construir mensaje de confirmación con plantilla específica
-    template = meta.get("template") or CONFIRMATION_FALLBACK
-    confirmation_text = template.format(
-        INC=inc_number,
-        GROUP=meta["group"]
-    )
+    def close(self):
+        pass
 
-    # Estructura final del ticket
-    ticket_data = {
-        "id": ticket_id,
-        "inc_number": inc_number,
-        "type": body.type,
-        "full_name": body.full_name,
-        "phone": body.phone,
-        "sev": meta["sev"],
-        "classstructureid": meta["classstructureid"],
-        "classificationid": meta["classificationid"],
-        "summary": meta["summary"],
-        "group": meta["group"],
-        "description": auto_description,
-        "payload": payload,
-        "created_at": created_at,
-        "confirmation_text": confirmation_text
-    }
 
-    # Guardar en Cloudant
-    save_ticket(ticket_data)
+class CloudantQuery:
+    def __init__(self, model):
+        self.model = model
 
-    return ticket_data
+    def all(self):
+        url = f"{CLOUDANT_URL}/{CLOUDANT_DB}/_all_docs?include_docs=true"
+        response = requests.get(url, auth=(CLOUDANT_USER, CLOUDANT_APIKEY))
+        if response.status_code != 200:
+            raise Exception(f"Error al listar: {response.text}")
+        data = response.json()
+        return [TicketORM(**row["doc"]) for row in data.get("rows", []) if "doc" in row]
 
-# ---------------------- LISTAR TODOS LOS TICKETS ----------------------
-@app.get("/tickets")
-def list_tickets():
-    tickets = get_all_tickets()
-    if not tickets:
-        return {"message": "No hay tickets registrados aún."}
-    return tickets
+    def filter(self, condition):
+        # Simula .filter(TicketORM.id == ...)
+        key, value = list(condition.items())[0]
+        url = f"{CLOUDANT_URL}/{CLOUDANT_DB}/_find"
+        selector = {"selector": {key: {"$eq": value}}}
+        response = requests.post(url, auth=(CLOUDANT_USER, CLOUDANT_APIKEY), json=selector)
+        if response.status_code != 200:
+            raise Exception(f"Error al filtrar: {response.text}")
+        docs = response.json().get("docs", [])
+        return [TicketORM(**doc) for doc in docs]
 
-# ---------------------- CONSULTAR TICKET POR INC ----------------------
-@app.get("/tickets/{inc_number}")
-def get_ticket(inc_number: str):
-    ticket = get_ticket_by_inc(inc_number)
-    if not ticket:
-        raise HTTPException(404, "Ticket no encontrado")
-    return ticket
+    def first(self):
+        results = self.all()
+        return results[0] if results else None
